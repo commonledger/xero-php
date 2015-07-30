@@ -31,34 +31,34 @@ $scrape_apis = array(
         'api_stem_constant' => 'API_CORE',
         'model_uris' => array(
             //'attachments',
-            'accounts',
+            //'accounts',
             //'bankstatements',
-            'banktransactions',
-            'bank-transfers',
-            'branding-themes',
-            'contacts',
-            'contactgroups',
-            'credit-notes',
-            'currencies',
-            'employees',
-            'expense-claims',
-            'invoices',
-            'items',
-            'journals',
+            //'banktransactions',
+            //'bank-transfers',
+            //'branding-themes',
+            //'contacts',
+            //'contactgroups',
+            //'credit-notes',
+            //'currencies',
+            //'employees',
+            //'expense-claims',
+            //'invoices',
+            //'items',
+            //'journals',
             'manual-journals',
-            'organisation',
-            'overpayments',
-            'payments',
-            'prepayments',
-            'receipts',
-            'repeating-invoices',
+            //'organisation',
+            //'overpayments',
+            //'payments',
+            //'prepayments',
+            //'receipts',
+            //'repeating-invoices',
             //'reports', - this is in a way different format
-            'tax-rates',
-            'tracking-categories',
-            'users'
+            //'tax-rates',
+            //'tracking-categories',
+            //'users'
         )
     ),
-    array(
+    /*array(
         'name' => 'Payroll - AU',
         'uri' => 'payroll-api',
         'types' => 'types-and-codes',
@@ -105,7 +105,7 @@ $scrape_apis = array(
             'folders',
             'associations'
         )
-    )
+    )*/
 );
 
 
@@ -238,6 +238,8 @@ foreach($scrape_apis as $scrape_api) {
     //Parse actual classes
     foreach($scrape_api['model_uris'] as $uri) {
 
+        $add_models = array();
+
         $full_uri = sprintf('%s/%s/%s/', $documentation_base, $scrape_api['uri'], $uri);
         $crawler = $client->request('GET', $full_uri);
 
@@ -246,10 +248,10 @@ foreach($scrape_apis as $scrape_api) {
 
         $last = $crawler->filter('.entry-content')->children()->last();
 
-        $crawler->filter('.entry-content')->children()->each(function (Crawler $node) use ($api, &$current_model, $crawler, $last) {
+        $crawler->filter('.entry-content')->children()->each(function (Crawler $node) use ($api, &$current_model, $crawler, $last, $add_models) {
             //keep static in closure.
             /** @var Model $primary_model */
-            static $page_heading, $section_name, $primary_model;
+            static $page_heading, $section_name, $primary_model, $example;
 
             $current_tag = $node->getNode(0)->tagName;
 
@@ -279,6 +281,23 @@ foreach($scrape_apis as $scrape_api) {
                     }
 
                     break;
+
+                case 'pre':
+
+                    if(stripos($node->text(), '</')) {
+                        set_error_handler(function() { /* ignore errors */ });
+                        $xml = simplexml_load_string($node->text());
+                        $model_properties = json_decode(json_encode($xml),TRUE);
+                        restore_error_handler();
+                        if(is_array($model_properties)) {
+                            foreach($model_properties as $property => $value) {
+                                echo $property . "\n";
+                            }
+                        }
+                    }
+
+                    break;
+
                 case 'table':
                     //If no section, we're in the overview table.
                     if($current_model === null){
@@ -320,13 +339,15 @@ foreach($scrape_apis as $scrape_api) {
                         if($primary_model->getName() === null){
                             $primary_model_name = str_replace(' ', '', $page_heading);
                             $primary_model->setName($primary_model_name);
-                            $api->addModel($primary_model);
+                            //$api->addModel($primary_model);
+                            $add_models[$primary_model_name] = &$primary_model;
                         } elseif($current_model->getName() !== $model_name){
                             //If its not the same, we've reached a new one
                             //create the sub one and add its parent
                             $current_model = new Model();
                             $current_model->setName($model_name);
-                            $api->addModel($current_model);
+                            $add_models[$model_name] = &$current_model;
+                            //$api->addModel($current_model);
 
                             $current_model->setParentModel($primary_model);
 
@@ -458,6 +479,14 @@ foreach($scrape_apis as $scrape_api) {
                         }
                     }
 
+                    // If we don't have a the UTC Updated field do a scan to see if it in use on this model
+                    //if ($model->hasProperty('UpdatedDateUTC') === false && isset($model->rawHTML)) {
+                    //    if (strpos($model->rawHTML, 'UpdatedDateUTC')) {
+                    //        $property = new Property('UpdatedDateUTC', 'UTC timestamp of last update to the ' . $model->getClassName(), false, true, false);
+                    //        $model->addProperty($property);
+                    //    }
+                    //}
+
                     //Debug
                     //$model->printPropertyTable();
                 }
@@ -469,6 +498,12 @@ foreach($scrape_apis as $scrape_api) {
             }
 
         });
+
+        // Add the models to the API
+        foreach($add_models as $model) {
+            $api->addModel($model);
+        }
+
     }
     $apis[] = $api;
 }
